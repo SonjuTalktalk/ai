@@ -1,0 +1,32 @@
+# 환경변수 파일
+.env
+
+# Python 기본
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+
+# 가상환경
+venv/
+env/
+.venv/
+
+# IDE / 편집기
+.vscode/
+.idea/
+
+# 로그 / 리포트
+*.log
+*.tmp
+*.out
+*.err
+
+# 테스트 / 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
