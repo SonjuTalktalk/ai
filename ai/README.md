@@ -5,7 +5,7 @@
 ## 주요 기능
 
 - **친근한 채팅** - 손주처럼 따뜻한 대화
-- **할일 추천** - 사용자 맞춤형 데일리 투두 생성
+- **할일 추출** - 대화에서 자동으로 할일과 루틴 추출
 - **학습 분석** - 활동 패턴 분석 및 격려 메시지
 - **격려 시스템** - 상황별 맞춤형 응원 메시지
 
@@ -17,7 +17,7 @@ sonju_ai/
 ├── config/prompts.py          # 프롬프트 설정
 ├── core/
 │   ├── chat_service.py        # 채팅 서비스
-│   ├── todo_processor.py      # 할일 생성
+│   ├── todo_processor.py      # 할일 추출
 │   └── analysis_generator.py  # 학습 분석
 └── tests/test_core.py         # 통합 테스트
 ```
@@ -55,13 +55,24 @@ response = chat_service.chat("user123", "안녕하세요!")
 print(response["response"])
 ```
 
-### 할일 생성
+### 할일 추출
 ```python
 from sonju_ai.core.todo_processor import TodoProcessor
 
 todo_processor = TodoProcessor()
-user_profile = {"name": "김할머니", "age": 75, "interests": ["요리", "가족"]}
-todos = todo_processor.generate_daily_todos("user123", user_profile)
+
+# 대화에서 할일 추출
+user_input = "내일 오전 10시에 병원 가야 해요. 그리고 손주한테 전화도 드려야 하고요."
+result = todo_processor.extract_todos_from_conversation(user_input, "user123")
+
+# 추출된 할일 확인
+tasks = todo_processor.get_tasks_list(result)
+for task in tasks:
+    print(f"할일: {task['task']}, 시간: {task['time']}, 카테고리: {task['category']}")
+
+# 사용자용 포맷
+formatted_text = todo_processor.format_extracted_todos(result)
+print(formatted_text)
 ```
 
 ### 학습 분석
@@ -87,10 +98,9 @@ class ChatRequest(BaseModel):
     user_id: str
     message: str
 
-class TodoRequest(BaseModel):
+class TodoExtractionRequest(BaseModel):
     user_id: str
-    user_profile: dict
-    activity_logs: dict | None = None
+    message: str
 
 class AnalysisRequest(BaseModel):
     user_id: str
@@ -109,13 +119,16 @@ async def chat(request: ChatRequest):
     response = chat_service.chat(request.user_id, request.message)
     return {"ai_response": response["response"]}
 
-# 할일 생성 API
-@app.post("/ai/todos")
-async def generate_todos(request: TodoRequest):
-    todos = todo_processor.generate_daily_todos(
-        request.user_id, request.user_profile, request.activity_logs
+# 할일 추출 API
+@app.post("/ai/todos/extract")
+async def extract_todos(request: TodoExtractionRequest):
+    result = todo_processor.extract_todos_from_conversation(
+        request.message, request.user_id
     )
-    return {"todos": todos}
+    return {
+        "extracted_tasks": todo_processor.get_tasks_list(result),
+        "formatted_text": todo_processor.format_extracted_todos(result)
+    }
 
 # 학습 분석 API
 @app.post("/ai/analysis")

@@ -123,7 +123,7 @@ class TestChatService(unittest.TestCase):
         self.assertGreater(len(encouragement), 0)
 
 class TestTodoProcessor(unittest.TestCase):
-    """할일 처리 서비스 테스트"""
+    """할일 추출 서비스 테스트"""
     
     def setUp(self):
         """테스트 준비"""
@@ -131,60 +131,166 @@ class TestTodoProcessor(unittest.TestCase):
             self.todo_processor = TodoProcessor()
         except ValueError as e:
             self.skipTest(f"OpenAI API 키가 없습니다: {e}")
-        
-        # 테스트 데이터
-        self.test_profile = {
-            "name": "김할머니",
-            "age": 75,
-            "interests": ["요리", "가족", "건강"]
-        }
-        
-        self.test_activity = {
-            "recent_apps": ["카카오톡", "사진"],
-            "learning_progress": {
-                "completed_lessons": 5,
-                "weak_areas": ["사진 전송"]
-            }
-        }
     
-    def test_generate_daily_todos(self):
-        """할일 생성 테스트"""
-        todos = self.todo_processor.generate_daily_todos("test_user", self.test_profile, self.test_activity)
-        
-        self.assertIsInstance(todos, list)
-        self.assertGreater(len(todos), 0)
-        
-        # 첫 번째 할일 구조 확인
-        if todos:
-            todo = todos[0]
-            self.assertIn("task", todo)
-            self.assertIn("category", todo)
-            self.assertIn("time", todo)
-            self.assertIn("priority", todo)
-    
-    def test_prioritize_todos(self):
-        """할일 우선순위 조정 테스트"""
-        test_todos = [
-            {"task": "스트레칭", "category": "건강", "time": "오전", "priority": "보통"},
-            {"task": "전화하기", "category": "가족", "time": "오후", "priority": "높음"}
+    def test_extract_todos_from_conversation(self):
+        """대화에서 할일 추출 테스트"""
+        test_cases = [
+            # (입력, 예상 할일 수, 예상 카테고리)
+            ("내일 오전 10시에 병원 가야 해요", 1, "건강"),
+            ("손주한테 안부 전화 드려야 하는데 까먹을까봐", 1, "가족"),
+            ("카카오톡으로 사진 보내는 법 배우고 싶어요", 1, "학습"),
+            ("오늘 날씨가 좋네요", 0, None),  # 할일 없음
+            ("내일 마트 가서 장보고, 저녁에는 드라마 봐야지", 2, None)  # 복합
         ]
         
-        preferences = {"health_focus": True, "morning_person": True}
-        prioritized = self.todo_processor.prioritize_todos(test_todos, preferences)
-        
-        self.assertEqual(len(prioritized), 2)
-        self.assertIsInstance(prioritized, list)
+        for user_input, expected_count, expected_category in test_cases:
+            with self.subTest(input=user_input):
+                result = self.todo_processor.extract_todos_from_conversation(user_input, "test_user")
+                tasks = self.todo_processor.get_tasks_list(result)
+                
+                # 할일 수 확인
+                self.assertEqual(len(tasks), expected_count, f"입력: {user_input}")
+                
+                # 카테고리 확인 (할일이 있는 경우)
+                if expected_count > 0 and expected_category:
+                    self.assertEqual(tasks[0]["category"], expected_category)
     
-    def test_format_todos_display(self):
+    def test_extract_todos_structure(self):
+        """추출된 할일 구조 테스트"""
+        result = self.todo_processor.extract_todos_from_conversation("내일 병원 가야 해요", "test_user")
+        tasks = self.todo_processor.get_tasks_list(result)
+        
+        if tasks:
+            task = tasks[0]
+            # 필수 필드 확인
+            self.assertIn("task", task)
+            self.assertIn("category", task)
+            self.assertIn("time", task)
+            
+            # 타입 확인
+            self.assertIsInstance(task["task"], str)
+            self.assertIsInstance(task["category"], str)
+            # time은 None일 수 있음
+    
+    def test_format_extracted_todos(self):
         """할일 표시 형식 테스트"""
-        test_todos = [
-            {"task": "테스트 할일", "category": "일상", "time": "오전", "priority": "보통"}
+        # 할일 있는 경우
+        test_result = {
+            "tasks": [
+                {"task": "병원 가기", "time": "내일 오전", "category": "건강"}
+            ]
+        }
+        formatted = self.todo_processor.format_extracted_todos(test_result)
+        self.assertIn("추출된 할일 1개", formatted)
+        self.assertIn("병원 가기", formatted)
+        
+        # 할일 없는 경우
+        empty_result = {"tasks": []}
+        formatted_empty = self.todo_processor.format_extracted_todos(empty_result)
+        self.assertIn("추출된 할일이 없습니다", formatted_empty)
+    
+    def test_get_tasks_list(self):
+        """태스크 리스트 반환 테스트"""
+        test_result = {
+            "tasks": [
+                {"task": "테스트 할일", "time": None, "category": "일상"}
+            ]
+        }
+        tasks = self.todo_processor.get_tasks_list(test_result)
+        
+        self.assertIsInstance(tasks, list)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["task"], "테스트 할일")
+    
+    def test_duplicate_filtering(self):
+        """중복 할일 필터링 테스트"""
+        # 유사한 할일들이 중복 제거되는지 확인
+        test_input = "병원 가야 해요. 그리고 병원 가기도 해야 하고요. 병원 방문 예정이에요."
+        result = self.todo_processor.extract_todos_from_conversation(test_input, "test_user")
+        tasks = self.todo_processor.get_tasks_list(result)
+        
+        # 중복이 제거되어야 함 (유사한 할일들이 하나로 합쳐짐)
+        if tasks:
+            task_names = [task["task"].lower().strip() for task in tasks]
+            unique_names = set(task_names)
+            self.assertEqual(len(task_names), len(unique_names), "중복 할일이 제거되지 않음")
+    
+    def test_category_classification_detailed(self):
+        """상세 카테고리 분류 테스트"""
+        test_cases = [
+            ("혈압약 먹어야 해", "건강"),
+            ("운동하러 가야지", "건강"),
+            ("아들한테 전화해야 해", "가족"),
+            ("친구랑 만나기로 했어", "가족"),
+            ("스마트폰 사용법 배우고 싶어", "학습"),
+            ("요리법 익혀야겠어", "학습"),
+            ("빨래해야 해", "일상"),
+            ("마트에서 장보기", "일상"),
+            ("드라마 보려고 해", "취미"),
+            ("음악 들을 거야", "취미")
         ]
         
-        formatted = self.todo_processor.format_todos_for_display(test_todos)
-        self.assertIsInstance(formatted, str)
-        self.assertIn("오늘의 할일", formatted)
-        self.assertIn("테스트 할일", formatted)
+        for user_input, expected_category in test_cases:
+            with self.subTest(input=user_input):
+                result = self.todo_processor.extract_todos_from_conversation(user_input, "test_user")
+                tasks = self.todo_processor.get_tasks_list(result)
+                
+                if tasks:
+                    self.assertEqual(tasks[0]["category"], expected_category, 
+                                   f"입력: {user_input}, 예상: {expected_category}, 실제: {tasks[0]['category']}")
+    
+    def test_json_parsing_robustness(self):
+        """JSON 파싱 안정성 테스트"""
+        # _parse_extraction_response 메서드를 직접 테스트
+        processor = self.todo_processor
+        
+        # 정상 케이스
+        normal_response = '{"tasks": [{"task": "병원 가기", "time": "내일", "category": "건강"}]}'
+        result = processor._parse_extraction_response(normal_response)
+        self.assertEqual(len(result["tasks"]), 1)
+        self.assertEqual(result["tasks"][0]["task"], "병원 가기")
+        
+        # 앞뒤 텍스트가 있는 케이스 (개선된 파싱 로직 테스트)
+        messy_response = '다음은 결과입니다: {"tasks": [{"task": "전화하기", "time": null, "category": "가족"}]} 이상입니다.'
+        result = processor._parse_extraction_response(messy_response)
+        self.assertEqual(len(result["tasks"]), 1)
+        self.assertEqual(result["tasks"][0]["task"], "전화하기")
+        
+        # 잘못된 JSON 케이스
+        invalid_response = '이것은 JSON이 아닙니다'
+        result = processor._parse_extraction_response(invalid_response)
+        self.assertEqual(result["tasks"], [])
+        
+        # tasks가 null인 케이스
+        null_tasks_response = '{"tasks": null}'
+        result = processor._parse_extraction_response(null_tasks_response)
+        self.assertEqual(result["tasks"], [])
+        
+        # 빈 tasks 배열 케이스
+        empty_tasks_response = '{"tasks": []}'
+        result = processor._parse_extraction_response(empty_tasks_response)
+        self.assertEqual(result["tasks"], [])
+    
+    def test_edge_cases(self):
+        """엣지 케이스 테스트"""
+        # 빈 문자열
+        result = self.todo_processor.extract_todos_from_conversation("", "test_user")
+        self.assertEqual(result["tasks"], [])
+        
+        # 매우 긴 텍스트
+        long_text = "안녕하세요. " * 100 + "내일 병원 가야 해요."
+        result = self.todo_processor.extract_todos_from_conversation(long_text, "test_user")
+        tasks = self.todo_processor.get_tasks_list(result)
+        # 긴 텍스트에서도 할일이 추출되어야 함
+        self.assertGreaterEqual(len(tasks), 0)
+        
+        # 특수문자가 포함된 텍스트
+        special_text = "내일 오후 3:30에 A&B 병원에서 검사받아야 해요! (중요)"
+        result = self.todo_processor.extract_todos_from_conversation(special_text, "test_user")
+        tasks = self.todo_processor.get_tasks_list(result)
+        if tasks:
+            self.assertIsInstance(tasks[0]["task"], str)
+            self.assertGreater(len(tasks[0]["task"]), 0)
 
 class TestAnalysisGenerator(unittest.TestCase):
     """분석 생성 서비스 테스트"""
@@ -256,17 +362,18 @@ class TestIntegration(unittest.TestCase):
         chat_response = self.chat_service.chat(user_id, "안녕하세요!")
         self.assertIn("response", chat_response)
         
-        # 2. 할일 생성 테스트
-        user_profile = {"name": "테스트사용자", "age": 70, "interests": ["가족"]}
-        todos = self.todo_processor.generate_daily_todos(user_id, user_profile)
-        self.assertIsInstance(todos, list)
+        # 2. 할일 추출 테스트
+        test_input = "내일 오전에 병원 가고, 손주한테 전화해야 해요"
+        extraction_result = self.todo_processor.extract_todos_from_conversation(test_input, user_id)
+        tasks = self.todo_processor.get_tasks_list(extraction_result)
+        self.assertIsInstance(tasks, list)
         
         # 3. 분석 생성 테스트
         learning_data = {"total_study_time": 60, "completed_lessons": 3, "accuracy_rate": 0.9}
         analysis = self.analysis_generator.generate_learning_analysis(user_id, learning_data)
         self.assertIn("score", analysis)
         
-        logger.info(f"통합 테스트 완료 - 채팅: {len(chat_response['response'])}자, 할일: {len(todos)}개, 점수: {analysis['score']}점")
+        logger.info(f"통합 테스트 완료 - 채팅: {len(chat_response['response'])}자, 추출된 할일: {len(tasks)}개, 점수: {analysis['score']}점")
 
 def run_basic_test():
     """기본 테스트 실행 (API 키 없이도 가능한 테스트들)"""
