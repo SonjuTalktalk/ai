@@ -4,10 +4,10 @@
 
 ## 주요 기능
 
-- **친근한 채팅** - 손주처럼 따뜻한 대화
+- **친근한 채팅** - 손주처럼 다정한 대화 응답
 - **할일 추출** - 대화에서 자동으로 할일과 루틴 추출
-- **학습 분석** - 활동 패턴 분석 및 격려 메시지
-- **격려 시스템** - 상황별 맞춤형 응원 메시지
+- **학습 분석** - 활동 패턴 분석 및 맞춤형 피드백 제공
+- **(보조) 격려 메시지** - 상황별 맞춤형 응원 메시지 자동 생성
 
 ## 프로젝트 구조
 
@@ -16,7 +16,7 @@ sonju_ai/
 ├── utils/openai_client.py     # OpenAI API 클라이언트
 ├── config/prompts.py          # 프롬프트 설정
 ├── core/
-│   ├── chat_service.py        # 채팅 서비스
+│   ├── chat_service.py        # 챗봇
 │   ├── todo_processor.py      # 할일 추출
 │   └── analysis_generator.py  # 학습 분석
 └── tests/test_core.py         # 통합 테스트
@@ -62,7 +62,7 @@ from sonju_ai.core.todo_processor import TodoProcessor
 todo_processor = TodoProcessor()
 
 # 대화에서 할일 추출
-user_input = "내일 오전 10시에 병원 가야 해요. 그리고 손주한테 전화도 드려야 하고요."
+user_input = "내일 오전 10시에 병원 가야 해요. 그리고 손주한테 전화도 해야겠어요."
 result = todo_processor.extract_todos_from_conversation(user_input, "user123")
 
 # 추출된 할일 확인
