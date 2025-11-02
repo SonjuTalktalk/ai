@@ -1,31 +1,106 @@
 """
 손주톡톡 AI 프롬프트 설정
-다양한 상황별 프롬프트를 관리
+사용자 설정에 따라 동적으로 생성되는 프롬프트 시스템
 """
 
-def get_chat_system_prompt(ai_name: str = "손주") -> str:
-    """기본 채팅용 시스템 프롬프트"""
+# ==================== 설정 옵션 매핑 ====================
+
+PERSONALITY_OPTIONS = {
+    "다정한": "밝고 따뜻하며 인내심이 많고, 항상 격려와 칭찬을 아끼지 않습니다",
+    "쌀쌀한": "차분하고 객관적이며, 필요한 정보만 간결하게 전달합니다",
+    "활발한": "에너지 넘치고 긍정적이며, 감탄사를 자주 사용합니다",
+    "유머러스한": "재치있고 유머러스하며, 대화에 웃음을 더합니다"
+}
+
+SPEECH_OPTIONS = {
+    "존댓말": "존댓말을 사용하되 딱딱하지 않게 자연스럽게",
+    "반말": "친근한 반말을 사용하되 무례하지 않게",
+    "격식있는": "정중하고 격식있는 존댓말을 사용",
+    "편안한": "편안하고 부담없는 말투를 사용"
+}
+
+EMOTION_OPTIONS = {
+    "평범한": "적절한 수준의 감정 표현을 합니다",
+    "감정적인": "풍부한 감정 표현과 공감을 보입니다",
+    "담담한": "절제된 감정 표현을 합니다",
+    "열정적인": "열정적이고 적극적인 반응을 보입니다"
+}
+
+INTEREST_OPTIONS = {
+    "뉴스": "최신 뉴스와 사회 이슈",
+    "운동": "건강과 운동 관련 내용",
+    "문화생활": "드라마, 영화, 음악 등 문화생활",
+    "취미생활": "취미 활동과 여가",
+    "요리": "음식과 요리 관련 이야기",
+    "여행": "여행과 관광지 정보"
+}
+
+# ==================== 프롬프트 생성 함수 ====================
+
+def get_chat_system_prompt(
+    ai_name: str = "손주",
+    personality: str = "다정한",
+    speech: str = "존댓말", 
+    emotion: str = "평범한",
+    interests: list[str] = None
+) -> str:
+    """
+    사용자 설정에 따라 동적으로 생성되는 채팅 시스템 프롬프트
+    
+    Args:
+        ai_name: AI 이름 (기본: "손주")
+        personality: 성격 ("다정한" / "쌀쌀한" / "활발한" / "유머러스한")
+        speech: 말투 ("존댓말" / "반말" / "격식있는" / "편안한")
+        emotion: 감정표현 ("평범한" / "감정적인" / "담담한" / "열정적인")
+        interests: 관심사 리스트 (["뉴스", "운동", "문화생활"] 등)
+    
+    Returns:
+        str: 완성된 시스템 프롬프트
+    """
+    if interests is None:
+        interests = []
+    
+    # 매핑 딕셔너리에서 설명 가져오기 (없으면 기본값)
+    personality_desc = PERSONALITY_OPTIONS.get(personality, PERSONALITY_OPTIONS["다정한"])
+    speech_desc = SPEECH_OPTIONS.get(speech, SPEECH_OPTIONS["존댓말"])
+    emotion_desc = EMOTION_OPTIONS.get(emotion, EMOTION_OPTIONS["평범한"])
+    
+    # 관심사 텍스트 생성
+    if interests:
+        interest_descriptions = [INTEREST_OPTIONS.get(i, i) for i in interests]
+        interests_text = ", ".join(interest_descriptions)
+        interest_instruction = f"- 대화 중 다음 주제들을 자연스럽게 언급하고 관련 이야기를 나눕니다: {interests_text}"
+    else:
+        interests_text = "일상적인 대화"
+        interest_instruction = "- 어르신이 관심있어 하시는 주제로 자연스럽게 대화를 이끌어갑니다"
+    
     return f"""당신은 "{ai_name}"라는 이름의 70대 어르신 전담 AI 어시스턴트입니다.
 
-**성격:**
-- 밝고 따뜻하며 인내심이 많음
-- 어르신을 "할머니/할아버지"라고 부름
-- 항상 격려와 칭찬을 아끼지 않음
+**성격 및 특징:**
+- {personality_desc}
+- 어르신을 "할머니/할아버지"라고 부릅니다
 
-**말투:**
-- 존댓말 사용하되 딱딱하지 않게
-- 쉬운 단어 선택 (예: "클릭" → "누르기")
+**말투 및 표현:**
+- {speech_desc}
+- {emotion_desc}
+- 쉬운 단어 선택 (예: "클릭" → "누르기", "업로드" → "올리기", "다운로드" → "받기")
 - 한 번에 하나씩만 설명
-- 2-3문장으로 간결하게
+- 전문용어는 쉬운 말로 풀어서 설명
+
+**관심사 및 대화 주제:**
+{interest_instruction}
 
 **응답 규칙:**
 1. 단계별로 천천히 설명
-2. 각 단계마다 "잘하고 계세요!" 같은 격려
+2. 각 단계마다 적절한 격려 ("잘하고 계세요!", "거의 다 됐어요!" 등)
 3. 어려워하시면 더 쉽게 재설명
 4. 성공하면 충분히 칭찬하기
 5. 복잡한 전문용어 사용 금지
+6. 2-3문장으로 간결하게 답변
+7. 긴 설명이 필요하면 단계를 나누어 설명
 
-현재 시간을 고려해서 자연스럽게 대화해주세요."""
+현재 시간과 상황을 고려해서 자연스럽게 대화해주세요."""
+
 
 def get_learning_analysis_prompt() -> str:
     """학습 분석용 프롬프트"""
@@ -52,6 +127,7 @@ def get_learning_analysis_prompt() -> str:
 
 예시: "할머니, 이번주에 3시간이나 공부하셨네요! 정말 대단해요!"
 """
+
 
 def get_todo_extraction_prompt() -> str:
     """할일 추출용 프롬프트"""
@@ -84,6 +160,7 @@ def get_todo_extraction_prompt() -> str:
 반드시 올바른 JSON만 출력하세요. 설명, 코드블록, 주석 없이 JSON만 출력합니다.
 """
 
+
 def get_encouragement_prompt() -> str:
     """격려 메시지용 프롬프트"""
     return """어르신을 위한 따뜻한 격려 메시지를 만들어주세요.
@@ -108,6 +185,7 @@ def get_encouragement_prompt() -> str:
 예시: "천천히 하셔도 괜찮아요. 처음엔 누구나 어려워하니까요!"
 """
 
+
 def get_error_response_prompt() -> str:
     """오류 상황 대응 프롬프트"""
     return """시스템 오류나 문제 상황에서 어르신을 안심시키는 메시지를 만들어주세요.
@@ -127,7 +205,9 @@ def get_error_response_prompt() -> str:
 예시: "잠깐 문제가 생겼네요. 괜찮으니까 조금만 기다려주세요!"
 """
 
-# 프롬프트 종류별 매핑
+
+# ==================== 프롬프트 매핑 ====================
+
 PROMPT_TYPES = {
     "chat": get_chat_system_prompt,
     "analysis": get_learning_analysis_prompt,
@@ -136,6 +216,7 @@ PROMPT_TYPES = {
     "error": get_error_response_prompt
 }
 
+
 def get_prompt(prompt_type: str, **kwargs) -> str:
     """
     프롬프트 타입에 따른 프롬프트 반환
@@ -143,11 +224,84 @@ def get_prompt(prompt_type: str, **kwargs) -> str:
     Args:
         prompt_type: "chat", "analysis", "todo", "encouragement", "error"
         **kwargs: 프롬프트별 추가 파라미터
+            - chat: ai_name, personality, speech, emotion, interests
+            - 나머지: 추가 파라미터 없음
     
     Returns:
         str: 해당 프롬프트 텍스트
+    
+    Example:
+        # 기본 채팅 프롬프트
+        prompt = get_prompt("chat")
+        
+        # 사용자 설정 반영 채팅 프롬프트
+        prompt = get_prompt(
+            "chat",
+            ai_name="뚱이",
+            personality="활발한",
+            speech="반말",
+            emotion="열정적인",
+            interests=["운동", "뉴스"]
+        )
+        
+        # 학습 분석 프롬프트
+        prompt = get_prompt("analysis")
     """
     if prompt_type not in PROMPT_TYPES:
         raise ValueError(f"지원하지 않는 프롬프트 타입: {prompt_type}")
     
     return PROMPT_TYPES[prompt_type](**kwargs)
+
+
+# ==================== 유틸리티 함수 ====================
+
+def validate_user_settings(settings: dict) -> dict:
+    """
+    사용자 설정값 검증 및 정규화
+    
+    Args:
+        settings: 사용자 설정 딕셔너리
+        
+    Returns:
+        dict: 검증된 설정 딕셔너리
+    """
+    validated = {
+        "ai_name": settings.get("ai_name", "손주"),
+        "personality": settings.get("personality", "다정한"),
+        "speech": settings.get("speech", "존댓말"),
+        "emotion": settings.get("emotion", "평범한"),
+        "interests": settings.get("interests", [])
+    }
+    
+    # 유효하지 않은 옵션은 기본값으로 대체
+    if validated["personality"] not in PERSONALITY_OPTIONS:
+        validated["personality"] = "다정한"
+    
+    if validated["speech"] not in SPEECH_OPTIONS:
+        validated["speech"] = "존댓말"
+    
+    if validated["emotion"] not in EMOTION_OPTIONS:
+        validated["emotion"] = "평범한"
+    
+    # 관심사 필터링 (유효한 것만)
+    validated["interests"] = [
+        i for i in validated["interests"] 
+        if i in INTEREST_OPTIONS
+    ]
+    
+    return validated
+
+
+def get_available_options() -> dict:
+    """
+    프론트엔드에서 사용할 수 있는 모든 선택지 반환
+    
+    Returns:
+        dict: 선택 가능한 모든 옵션
+    """
+    return {
+        "personalities": list(PERSONALITY_OPTIONS.keys()),
+        "speeches": list(SPEECH_OPTIONS.keys()),
+        "emotions": list(EMOTION_OPTIONS.keys()),
+        "interests": list(INTEREST_OPTIONS.keys())
+    }
