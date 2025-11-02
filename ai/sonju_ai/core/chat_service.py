@@ -1,6 +1,6 @@
 """
 손주톡톡 채팅 서비스
-메인 채팅 기능과 대화 관리
+메인 채팅 기능과 대화 관리 (4개 모델 지원)
 """
 
 import logging
@@ -8,24 +8,58 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from sonju_ai.utils.openai_client import OpenAIClient
-from sonju_ai.config.prompts import get_prompt
+from sonju_ai.config.prompts import get_prompt, validate_model_type
 
 logger = logging.getLogger(__name__)
 
 class ChatService:
-    """손주톡톡 메인 채팅 서비스"""
+    """손주톡톡 메인 채팅 서비스 (4개 AI 모델 지원)"""
     
-    def __init__(self, ai_name: str = "손주"):
+    def __init__(
+        self, 
+        ai_name: str = "손주",
+        model_type: str = "friendly"
+    ):
         """
         채팅 서비스 초기화
         
         Args:
             ai_name: AI 어시스턴트 이름
+            model_type: AI 모델 타입
+                - "friendly": 다정한 (따뜻하고 자상하게)
+                - "active": 활발한 (에너지 넘치고 적극적으로)
+                - "pleasant": 유쾌한 (재치있고 유머러스하게)
+                - "reliable": 듬직한 (침착하고 체계적으로)
         """
         self.ai_name = ai_name
+        self.model_type = validate_model_type(model_type)
+        
         self.openai_client = OpenAIClient()
         self.conversation_history: Dict[str, List[Dict]] = {}
-        logger.info(f"채팅 서비스 초기화 완료 (AI 이름: {ai_name})")
+        
+        logger.info(
+            f"채팅 서비스 초기화 완료 (AI 이름: {ai_name}, 모델: {self.model_type})"
+        )
+    
+    def update_model_type(self, model_type: str):
+        """
+        AI 모델 타입 업데이트
+        
+        Args:
+            model_type: 새로운 모델 타입 ("friendly", "active", "pleasant", "reliable")
+        """
+        self.model_type = validate_model_type(model_type)
+        logger.info(f"AI 모델 업데이트 완료: {self.model_type}")
+    
+    def update_ai_name(self, ai_name: str):
+        """
+        AI 이름 업데이트
+        
+        Args:
+            ai_name: 새로운 AI 이름
+        """
+        self.ai_name = ai_name
+        logger.info(f"AI 이름 업데이트 완료: {self.ai_name}")
     
     def chat(
         self, 
@@ -42,7 +76,12 @@ class ChatService:
             max_history: 유지할 대화 기록 수
             
         Returns:
-            dict: {"response": "AI응답", "timestamp": "시간", "ai_name": "AI이름"}
+            dict: {
+                "response": "AI응답",
+                "timestamp": "시간",
+                "ai_name": "AI이름",
+                "model_type": "모델타입"
+            }
         """
         try:
             # 사용자별 대화 기록 가져오기
@@ -51,8 +90,12 @@ class ChatService:
             
             history = self.conversation_history[user_id]
             
-            # 시스템 프롬프트 설정
-            system_prompt = get_prompt("chat", ai_name=self.ai_name)
+            # 시스템 프롬프트 설정 (모델 타입에 따라)
+            system_prompt = get_prompt(
+                "chat",
+                model_type=self.model_type,
+                ai_name=self.ai_name
+            )
             
             # 메시지 구성
             messages = [{"role": "system", "content": system_prompt}]
@@ -73,7 +116,8 @@ class ChatService:
             conversation_record = {
                 "user_message": message,
                 "ai_response": ai_response,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "model_type": self.model_type
             }
             history.append(conversation_record)
             
@@ -81,12 +125,16 @@ class ChatService:
             if len(history) > max_history * 2:
                 self.conversation_history[user_id] = history[-max_history:]
             
-            logger.info(f"채팅 완료 - 사용자: {user_id}, 메시지 길이: {len(message)}")
+            logger.info(
+                f"채팅 완료 - 사용자: {user_id}, "
+                f"모델: {self.model_type}, 메시지 길이: {len(message)}"
+            )
             
             return {
                 "response": ai_response,
                 "timestamp": conversation_record["timestamp"],
-                "ai_name": self.ai_name
+                "ai_name": self.ai_name,
+                "model_type": self.model_type
             }
             
         except Exception as e:
@@ -96,7 +144,8 @@ class ChatService:
             return {
                 "response": error_response,
                 "timestamp": datetime.now().isoformat(),
-                "ai_name": self.ai_name
+                "ai_name": self.ai_name,
+                "model_type": self.model_type
             }
     
     def get_conversation_history(self, user_id: str) -> List[Dict]:
@@ -206,17 +255,49 @@ class ChatService:
 
 # 간단한 테스트 실행
 if __name__ == "__main__":
-    # 기본 테스트
+    # 4개 모델 테스트
     try:
-        chat_service = ChatService("손주톡톡")
+        print("="*50)
+        print("손주톡톡 4개 AI 모델 테스트")
+        print("="*50)
         
-        # 테스트 채팅
-        response = chat_service.chat("test_user", "안녕하세요!")
-        print(f"응답: {response['response']}")
+        # 1. 다정한(friendly) 모델
+        print("\n[1] 다정한(friendly) 모델")
+        chat_friendly = ChatService("손주", "friendly")
+        response1 = chat_friendly.chat("test_user", "문자 보내는 법 알려주세요")
+        print(f"응답: {response1['response']}\n")
         
-        # 격려 메시지 테스트
-        encouragement = chat_service.generate_encouragement("test_user", "새로운 기능을 배우려고 시도중")
-        print(f"격려: {encouragement}")
+        # 2. 활발한(active) 모델
+        print("[2] 활발한(active) 모델")
+        chat_active = ChatService("손주", "active")
+        response2 = chat_active.chat("test_user", "문자 보내는 법 알려주세요")
+        print(f"응답: {response2['response']}\n")
+        
+        # 3. 유쾌한(pleasant) 모델
+        print("[3] 유쾌한(pleasant) 모델")
+        chat_pleasant = ChatService("손주", "pleasant")
+        response3 = chat_pleasant.chat("test_user", "문자 보내는 법 알려주세요")
+        print(f"응답: {response3['response']}\n")
+        
+        # 4. 듬직한(reliable) 모델
+        print("[4] 듬직한(reliable) 모델")
+        chat_reliable = ChatService("손주", "reliable")
+        response4 = chat_reliable.chat("test_user", "문자 보내는 법 알려주세요")
+        print(f"응답: {response4['response']}\n")
+        
+        # 모델 변경 테스트
+        print("[5] 모델 변경 테스트")
+        chat_service = ChatService("손주", "friendly")
+        print("초기: friendly 모델")
+        
+        chat_service.update_model_type("active")
+        print("변경: active 모델")
+        response5 = chat_service.chat("test_user", "오늘 기분이 좋아요!")
+        print(f"응답: {response5['response']}\n")
+        
+        print("="*50)
+        print("테스트 완료!")
+        print("="*50)
         
     except Exception as e:
         print(f"테스트 중 오류: {e}")

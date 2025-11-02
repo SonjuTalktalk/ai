@@ -4,9 +4,8 @@
 
 ## 주요 기능
 
-- **친근한 채팅** - 손주처럼 다정한 대화 응답
+- **AI 챗봇** - 4가지 성격 모델 선택 가능 (friendly(다정한) / active(활발한) / pleasant(유쾌한) / reliable(듬직한))
 - **할일 추출** - 대화에서 자동으로 할일과 루틴 추출
-- **학습 분석** - 활동 패턴 분석 및 맞춤형 피드백 제공
 - **(보조) 격려 메시지** - 상황별 맞춤형 응원 메시지 자동 생성
 
 ## 프로젝트 구조
@@ -17,8 +16,7 @@ sonju_ai/
 ├── config/prompts.py          # 프롬프트 설정
 ├── core/
 │   ├── chat_service.py        # 챗봇
-│   ├── todo_processor.py      # 할일 추출
-│   └── analysis_generator.py  # 학습 분석
+│   └── todo_processor.py      # 할일 추출
 └── tests/test_core.py         # 통합 테스트
 ```
 
@@ -50,7 +48,12 @@ python -m sonju_ai.tests.test_core
 ```python
 from sonju_ai.core.chat_service import ChatService
 
+# 기본 초기화 (다정한 모델)
 chat_service = ChatService("손주톡톡")
+
+# 특정 모델로 초기화 (friendly, active, pleasant, reliable 중 선택)
+chat_service = ChatService("손주톡톡", model_type="friendly")
+
 response = chat_service.chat("user123", "안녕하세요!")
 print(response["response"])
 ```
@@ -75,15 +78,6 @@ formatted_text = todo_processor.format_extracted_todos(result)
 print(formatted_text)
 ```
 
-### 학습 분석
-```python
-from sonju_ai.core.analysis_generator import AnalysisGenerator
-
-analyzer = AnalysisGenerator()
-learning_data = {"total_study_time": 120, "completed_lessons": 5, "accuracy_rate": 0.85}
-analysis = analyzer.generate_learning_analysis("user123", learning_data)
-```
-
 ## FastAPI 연동
 
 ```python
@@ -91,7 +85,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sonju_ai.core.chat_service import ChatService
 from sonju_ai.core.todo_processor import TodoProcessor
-from sonju_ai.core.analysis_generator import AnalysisGenerator
 
 # Request 모델 정의
 class ChatRequest(BaseModel):
@@ -102,16 +95,26 @@ class TodoExtractionRequest(BaseModel):
     user_id: str
     message: str
 
-class AnalysisRequest(BaseModel):
-    user_id: str
-    learning_data: dict
-
 app = FastAPI()
 
 # AI 서비스 초기화
 chat_service = ChatService("손주톡톡")
 todo_processor = TodoProcessor()
-analysis_generator = AnalysisGenerator()
+
+# 지원 모델 조회 API
+@app.get("/ai/models")
+async def get_available_models():
+    """사용 가능한 AI 모델 목록 반환"""
+    from sonju_ai.config.prompts import get_available_models
+    models = get_available_models()
+    return {
+        "models": [
+            {"id": "friendly", "name": "다정한"},
+            {"id": "active", "name": "활발한"},
+            {"id": "pleasant", "name": "유쾌한"},
+            {"id": "reliable", "name": "듬직한"}
+        ]
+    }
 
 # 채팅 API
 @app.post("/ai/chat")
@@ -129,12 +132,4 @@ async def extract_todos(request: TodoExtractionRequest):
         "extracted_tasks": todo_processor.get_tasks_list(result),
         "formatted_text": todo_processor.format_extracted_todos(result)
     }
-
-# 학습 분석 API
-@app.post("/ai/analysis")
-async def analyze_learning(request: AnalysisRequest):
-    analysis = analysis_generator.generate_learning_analysis(
-        request.user_id, request.learning_data
-    )
-    return analysis
 ```
