@@ -247,7 +247,7 @@ def get_encouragement_prompt() -> str:
 - 복잡한 설명
 - 압박감 조성
 
-예시: "천��히 하셔도 괜찮아요. 처음엔 누구나 어려워하니까요!"
+예시: "천천히 하셔도 괜찮아요. 처음엔 누구나 어려워하니까요!"
 """
 
 
@@ -271,6 +271,82 @@ def get_error_response_prompt() -> str:
 """
 
 
+def get_health_analysis_prompt() -> str:
+    """건강 메모 분석용 프롬프트 (4단계 상태 판정)"""
+    return """어르신의 건강 메모를 분석하여 현재 건강 상태를 4단계 중 하나로 분류하세요.
+
+**분류 기준:**
+
+- danger (위험): 통증, 열, 어지럼, 호흡곤란, 심장, 혈압, 응급, 병원
+- warning (주의): 피곤, 두통, 불면, 스트레스, 소화불량
+- normal (보통): 평범, 괜찮음, 무난함, 조금 피곤
+- healthy (건강): 활기, 산책, 운동, 숙면, 식사, 기분 좋음
+
+**판단 규칙:**
+1. 통증, 열, 어지럼, 호흡곤란 등 응급 표현 → danger
+2. 피로, 두통, 불면, 스트레스 등 일시적 불편 → warning
+3. 평범하거나 무난함, 가벼운 피로 → normal
+4. 활동, 식사, 수면 등 긍정적 표현 → healthy
+
+**중요: status 값은 반드시 영어로만 출력하세요**
+- danger, warning, normal, healthy 중 하나
+- 한글이나 다른 언어 사용 금지
+
+**출력 형식:**
+반드시 아래 JSON 형식으로만 출력하세요.
+
+{"status": "healthy"}
+또는
+{"status": "normal"}
+또는
+{"status": "warning"}
+또는
+{"status": "danger"}
+"""
+
+
+def get_prescription_ocr_prompt() -> str:
+    """처방전/약봉투 OCR 프롬프트"""
+    return """처방전 또는 약봉투 이미지를 분석하여 약 정보를 추출하세요.
+
+**추출 항목:**
+1. 약 이름 (정확한 약품명)
+2. 처방 날짜 (YYYY-MM-DD 형식)
+3. 복용 일수 (숫자만)
+4. 1일 복용 횟수 (예: "1일 3회")
+5. 복용 시간 (아침/점심/저녁, 있을 경우만)
+
+**인식 규칙:**
+- 약 이름은 한글명 우선
+- 날짜는 YYYY-MM-DD 형식으로 변환
+- 복용 일수는 숫자만 (예: "7일분" → 7)
+- 복용 시간이 명시되어 있으면 배열로
+- 애매하거나 없는 정보는 null
+- raw_text는 선택사항 (추출된 전체 텍스트, 없으면 생략 가능)
+
+**출력 형식:**
+반드시 아래 JSON 형식으로만 출력하세요.
+
+{
+    "medicines": [
+        {
+            "name": "타이레놀 500mg",
+            "prescription_date": "2025-11-03",
+            "duration_days": 7,
+            "frequency": "1일 3회",
+            "times": ["아침", "점심", "저녁"]
+        }
+    ]
+}
+
+raw_text가 있는 경우:
+{
+    "medicines": [...],
+    "raw_text": "추출된 텍스트"
+}
+"""
+
+
 # ==================== 프롬프트 매핑 ====================
 
 MODEL_PROMPTS = {
@@ -285,7 +361,9 @@ PROMPT_TYPES = {
     "analysis": get_learning_analysis_prompt,
     "todo": get_todo_extraction_prompt,
     "encouragement": get_encouragement_prompt,
-    "error": get_error_response_prompt
+    "error": get_error_response_prompt,
+    "health_analysis": get_health_analysis_prompt,
+    "prescription_ocr": get_prescription_ocr_prompt
 }
 
 
@@ -294,7 +372,7 @@ def get_prompt(prompt_type: str, model_type: str = "friendly", ai_name: str = "�
     프롬프트 타입과 모델 타입에 따른 프롬프트 반환
     
     Args:
-        prompt_type: "chat", "analysis", "todo", "encouragement", "error"
+        prompt_type: "chat", "analysis", "todo", "encouragement", "error", "health_analysis", "prescription_ocr"
         model_type: "friendly", "active", "pleasant", "reliable" (chat일 때만 사용)
         ai_name: AI 이름 (기본: "손주")
     
@@ -308,8 +386,11 @@ def get_prompt(prompt_type: str, model_type: str = "friendly", ai_name: str = "�
         # 활발한 모델 채팅 프롬프트
         prompt = get_prompt("chat", model_type="active")
         
-        # 학습 분석 프롬프트 (모델 타입 무관)
-        prompt = get_prompt("analysis")
+        # 건강 메모 분석 프롬프트
+        prompt = get_prompt("health_analysis")
+        
+        # 처방전 OCR 프롬프트
+        prompt = get_prompt("prescription_ocr")
     """
     if prompt_type == "chat":
         # 채팅 프롬프트는 모델 타입에 따라 결정

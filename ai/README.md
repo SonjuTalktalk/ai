@@ -6,7 +6,7 @@
 
 - **AI 챗봇** - 4가지 성격 모델 선택 가능 (friendly(다정한) / active(활발한) / pleasant(유쾌한) / reliable(듬직한))
 - **할일 추출** - 대화에서 자동으로 할일과 루틴 추출
-- **(보조) 격려 메시지** - 상황별 맞춤형 응원 메시지 자동 생성
+- **건강 메모 분석** - 건강 상태 4단계 판정 (healthy/normal/warning/danger) + 처방전 OCR + 음성 메모 STT
 
 ## 프로젝트 구조
 
@@ -16,7 +16,8 @@ sonju_ai/
 ├── config/prompts.py          # 프롬프트 설정
 ├── core/
 │   ├── chat_service.py        # 챗봇
-│   └── todo_processor.py      # 할일 추출
+│   ├── todo_processor.py      # 할일 추출
+│   └── health_service.py      # 건강 메모 분석
 └── tests/test_core.py         # 통합 테스트
 ```
 
@@ -78,6 +79,27 @@ formatted_text = todo_processor.format_extracted_todos(result)
 print(formatted_text)
 ```
 
+### 건강 메모 분석
+```python
+from sonju_ai.core.health_service import HealthService
+
+health_service = HealthService()
+
+# 건강 메모 분석
+result = health_service.analyze_health_memo("오늘 머리가 좀 아파요")
+print(f"상태: {result['status']}")  # healthy, normal, warning, danger 중 하나
+print(f"색상: {health_service.get_status_color(result['status'])}")  # 캘린더 색상 매핑
+
+# 처방전 이미지에서 정보 추출
+prescription_info = health_service.extract_prescription_info("prescription.jpg")
+for medicine in prescription_info['medicines']:
+    print(f"약: {medicine['name']}, 복용: {medicine['frequency']}")
+
+# 음성 메모 텍스트 변환 + 건강 분석
+voice_result = health_service.analyze_voice_memo("voice_memo.mp3")
+print(f"텍스트: {voice_result['text']}, 상태: {voice_result['status']}")
+```
+
 ## FastAPI 연동
 
 ```python
@@ -85,6 +107,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sonju_ai.core.chat_service import ChatService
 from sonju_ai.core.todo_processor import TodoProcessor
+from sonju_ai.core.health_service import HealthService
 
 # Request 모델 정의
 class ChatRequest(BaseModel):
@@ -95,11 +118,15 @@ class TodoExtractionRequest(BaseModel):
     user_id: str
     message: str
 
+class HealthMemoRequest(BaseModel):
+    memo_text: str
+
 app = FastAPI()
 
 # AI 서비스 초기화
 chat_service = ChatService("손주톡톡")
 todo_processor = TodoProcessor()
+health_service = HealthService()
 
 # 지원 모델 조회 API
 @app.get("/ai/models")
@@ -131,5 +158,15 @@ async def extract_todos(request: TodoExtractionRequest):
     return {
         "extracted_tasks": todo_processor.get_tasks_list(result),
         "formatted_text": todo_processor.format_extracted_todos(result)
+    }
+
+# 건강 메모 분석 API
+@app.post("/ai/health/analyze")
+async def analyze_health(request: HealthMemoRequest):
+    result = health_service.analyze_health_memo(request.memo_text)
+    return {
+        "status": result["status"],
+        "color": health_service.get_status_color(result["status"]),
+        "timestamp": result["timestamp"]
     }
 ```

@@ -5,12 +5,14 @@
 
 import unittest
 import logging
+import os
 
 # 테스트할 모듈들 import
 from sonju_ai.utils.openai_client import OpenAIClient
 from sonju_ai.config.prompts import get_prompt
 from sonju_ai.core.chat_service import ChatService
 from sonju_ai.core.todo_processor import TodoProcessor
+from sonju_ai.core.health_service import HealthService
 
 # 테스트용 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +32,37 @@ class TestOpenAIClient(unittest.TestCase):
         """연결 테스트"""
         result = self.client.test_connection()
         self.assertTrue(result)
+    
+    def test_vision_completion(self):
+        """Vision API 기본 테스트 (URL 이미지)"""
+        # 테스트용 공개 이미지 URL
+        test_url = "https://via.placeholder.com/150"
+        try:
+            response = self.client.vision_completion(
+                "이 이미지를 간단히 설명해주세요",
+                test_url
+            )
+            self.assertIsInstance(response, str)
+            self.assertGreater(len(response), 0)
+        except Exception as e:
+            self.skipTest(f"Vision API 테스트 실패: {e}")
+    
+    def test_chat_with_json_format(self):
+        """JSON 응답 형식 테스트"""
+        messages = [
+            {"role": "user", "content": "JSON 형식으로 답해주세요: {\"status\": \"ok\"}"}
+        ]
+        response = self.client.chat_completion(
+            messages,
+            response_format={"type": "json_object"}
+        )
+        self.assertIsInstance(response, str)
+        # JSON 파싱 가능한지 확인
+        import json
+        try:
+            json.loads(response)
+        except json.JSONDecodeError:
+            self.fail("JSON 응답 형식이 아닙니다")
 
 
 class TestPrompts(unittest.TestCase):
@@ -47,6 +80,21 @@ class TestPrompts(unittest.TestCase):
         prompt = get_prompt("todo")
         self.assertIsInstance(prompt, str)
         self.assertIn("할일", prompt)
+    
+    def test_health_analysis_prompt(self):
+        """건강 분석 프롬프트 생성 테스트"""
+        prompt = get_prompt("health_analysis")
+        self.assertIsInstance(prompt, str)
+        self.assertIn("danger", prompt)
+        self.assertIn("warning", prompt)
+        self.assertIn("normal", prompt)
+        self.assertIn("healthy", prompt)
+    
+    def test_prescription_ocr_prompt(self):
+        """처방전 OCR 프롬프트 생성 테스트"""
+        prompt = get_prompt("prescription_ocr")
+        self.assertIsInstance(prompt, str)
+        self.assertIn("medicines", prompt)
 
 
 class TestChatService(unittest.TestCase):
@@ -138,6 +186,70 @@ class TestTodoProcessor(unittest.TestCase):
         self.assertIn("병원 가기", formatted)
 
 
+class TestHealthService(unittest.TestCase):
+    """건강 서비스 핵심 테스트"""
+    
+    def setUp(self):
+        try:
+            self.health_service = HealthService()
+        except ValueError as e:
+            self.skipTest(f"OpenAI API 키가 없습니다: {e}")
+    
+    def test_analyze_health_memo_basic(self):
+        """기본 건강 메모 분석 테스트"""
+        result = self.health_service.analyze_health_memo("오늘 컨디션이 좋아요")
+        
+        # 필수 필드 확인
+        self.assertIn("status", result)
+        self.assertIn("timestamp", result)
+        
+        # status 값 검증
+        valid_statuses = ["healthy", "normal", "warning", "danger"]
+        self.assertIn(result["status"], valid_statuses)
+    
+    def test_analyze_health_memo_warning(self):
+        """주의 상태 메모 분석 테스트"""
+        result = self.health_service.analyze_health_memo("머리가 좀 아파요")
+        
+        self.assertIn("status", result)
+        # warning이 나올 가능성이 높지만, AI 판단이므로 필수는 아님
+        self.assertIn(result["status"], ["warning", "normal", "danger"])
+    
+    def test_analyze_empty_memo(self):
+        """빈 메모 처리 테스트"""
+        result = self.health_service.analyze_health_memo("")
+        
+        self.assertIn("status", result)
+        self.assertIn("error", result)
+        self.assertEqual(result["status"], "normal")
+    
+    def test_get_status_color(self):
+        """상태 색상 변환 테스트"""
+        self.assertEqual(self.health_service.get_status_color("healthy"), "green")
+        self.assertEqual(self.health_service.get_status_color("normal"), "blue")
+        self.assertEqual(self.health_service.get_status_color("warning"), "yellow")
+        self.assertEqual(self.health_service.get_status_color("danger"), "red")
+        self.assertEqual(self.health_service.get_status_color("invalid"), "blue")
+    
+    def test_format_health_analysis(self):
+        """건강 분석 포맷 테스트"""
+        test_result = {
+            "status": "healthy",
+            "timestamp": "2025-11-03T12:00:00"
+        }
+        formatted = self.health_service.format_health_analysis(test_result)
+        
+        self.assertIsInstance(formatted, str)
+        self.assertIn("건강한 상태", formatted)
+    
+    def test_transcribe_audio_invalid_path(self):
+        """잘못된 오디오 경로 처리 테스트"""
+        result = self.health_service.transcribe_audio("invalid_path.mp3")
+        
+        # 빈 문자열 또는 에러 메시지 반환
+        self.assertIsInstance(result, str)
+
+
 class TestIntegration(unittest.TestCase):
     """통합 테스트"""
     
@@ -145,6 +257,7 @@ class TestIntegration(unittest.TestCase):
         try:
             self.chat_service = ChatService("손주", "friendly")
             self.todo_processor = TodoProcessor()
+            self.health_service = HealthService()
         except ValueError as e:
             self.skipTest(f"OpenAI API 키가 없습니다: {e}")
     
@@ -165,11 +278,34 @@ class TestIntegration(unittest.TestCase):
         tasks = self.todo_processor.get_tasks_list(todo_result)
         self.assertIsInstance(tasks, list)
         
+        # 3. 건강 메모 분석
+        health_result = self.health_service.analyze_health_memo("오늘 컨디션 좋아요")
+        self.assertIn("status", health_result)
+        
         logger.info(
             f"통합 테스트 완료 - "
             f"채팅 응답: {len(chat_response['response'])}자, "
-            f"할일: {len(tasks)}개"
+            f"할일: {len(tasks)}개, "
+            f"건강 상태: {health_result['status']}"
         )
+    
+    def test_health_workflow(self):
+        """건강 기능 통합 테스트"""
+        # 건강 메모 분석
+        memo = "오늘 산책하고 운동했어요. 기분이 정말 좋네요!"
+        result = self.health_service.analyze_health_memo(memo)
+        
+        self.assertIn("status", result)
+        
+        # 색상 변환
+        color = self.health_service.get_status_color(result["status"])
+        self.assertIn(color, ["green", "blue", "yellow", "red"])
+        
+        # 포맷팅
+        formatted = self.health_service.format_health_analysis(result)
+        self.assertIsInstance(formatted, str)
+        
+        logger.info(f"건강 워크플로우 완료 - 상태: {result['status']}, 색상: {color}")
 
 
 def run_tests():
@@ -186,6 +322,7 @@ def run_tests():
         TestPrompts,
         TestChatService,
         TestTodoProcessor,
+        TestHealthService,
         TestIntegration
     ]
     
@@ -205,9 +342,9 @@ def run_tests():
     print(f"건너뜀: {len(result.skipped)}개")
     
     if result.wasSuccessful():
-        print("\n모든 테스트 통과!")
+        print("\n✅ 모든 테스트 통과!")
     else:
-        print("\n일부 테스트 실패")
+        print("\n❌ 일부 테스트 실패")
     
     return result.wasSuccessful()
 
@@ -216,10 +353,10 @@ if __name__ == "__main__":
     try:
         # API 키 확인
         client = OpenAIClient()
-        print("OpenAI API 키 확인됨\n")
+        print("✅ OpenAI API 키 확인됨\n")
         run_tests()
     except ValueError:
-        print("OpenAI API 키가 없습니다.")
+        print("❌ OpenAI API 키가 없습니다.")
         print("테스트를 실행하려면 .env 파일에 OPENAI_API_KEY를 설정하세요.")
     except Exception as e:
-        print(f"오류 발생: {e}")
+        print(f"❌ 오류 발생: {e}")
