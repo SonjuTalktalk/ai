@@ -1,11 +1,12 @@
 """
 OpenAI API 클라이언트
-손주톡톡 AI 모듈의 OpenAI API 통신 담당 (Vision + STT 지원)
+손주톡톡 AI 모듈의 OpenAI API 통신 담당 (Chat + Vision + STT + TTS)
 """
 import os
 import base64
 import logging
 from typing import Optional, List, Dict
+from datetime import datetime
 from openai import OpenAI, APIConnectionError, AuthenticationError, RateLimitError
 from dotenv import load_dotenv
 
@@ -13,6 +14,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 로깅 설정
+# 개발 단계: logging.INFO
+# 서비스 운영 시: logging.WARNING 권장
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -20,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class OpenAIClient:
-    """손주톡톡용 OpenAI API 클라이언트 (Vision + STT 지원)"""
+    """손주톡톡용 OpenAI API 클라이언트 (Chat + Vision + STT + TTS)"""
     
     DEFAULT_MODEL = "gpt-4o-mini"
     
@@ -206,6 +209,55 @@ class OpenAIClient:
         except Exception as e:
             logger.exception(f"STT 변환 중 오류: {e}")
             return "음성 변환 중 문제가 발생했습니다."
+
+    
+    def text_to_speech(
+        self, 
+        text: str, 
+        voice: str = "alloy",
+        output_path: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        TTS: 텍스트를 음성으로 변환
+        
+        Args:
+            text: 변환할 텍스트
+            voice: 음성 모델 (alloy, echo, fable, onyx, nova, shimmer)
+            output_path: 저장할 파일 경로 (None이면 자동 생성)
+        
+        Returns:
+            str: 저장된 파일 경로 (실패 시 None)
+        """
+        try:
+            # 빈 텍스트 체크
+            if not text or not text.strip():
+                logger.warning("빈 텍스트로 TTS 요청됨")
+                return None
+            
+            # 출력 경로 자동 생성
+            if not output_path:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                os.makedirs("outputs/tts", exist_ok=True)
+                output_path = f"outputs/tts/tts_output_{timestamp}.mp3"
+            else:
+                # 출력 경로의 디렉토리 생성
+                os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            
+            # TTS API 호출 (스트리밍 방식)
+            with self.client.audio.speech.with_streaming_response.create(
+                model="tts-1",
+                voice=voice,
+                input=text,
+                response_format="mp3"
+            ) as response:
+                response.stream_to_file(output_path)
+            
+            logger.info(f"TTS 변환 성공: {output_path} (음성: {voice})")
+            return output_path
+            
+        except Exception as e:
+            logger.exception(f"TTS 변환 중 오류: {e}")
+            return None
 
         
 # 파일 실행 테스트

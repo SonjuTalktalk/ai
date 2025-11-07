@@ -4,7 +4,7 @@
 
 ## 주요 기능
 
-- **AI 챗봇** - 4가지 성격 모델 선택 가능 (friendly(다정한) / active(활발한) / pleasant(유쾌한) / reliable(듬직한))
+- **AI 챗봇** - 4가지 성격 모델 선택 가능 (friendly(다정한) / active(활발한) / pleasant(유쾌한) / reliable(듬직한)) + TTS 음성 변환
 - **할일 추출** - 대화에서 자동으로 할일과 루틴 추출
 - **건강 메모 분석** - 건강 상태 4단계 판정 (healthy/normal/warning/danger) + 처방전 OCR + 음성 메모 STT
 
@@ -37,26 +37,29 @@ cp .env.template .env
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-### 테스트 실행
-```bash
-cd ai
-python -m sonju_ai.tests.test_core
-```
-
 ## 사용 예시
 
 ### 기본 채팅
 ```python
 from sonju_ai.core.chat_service import ChatService
 
-# 기본 초기화 (다정한 모델)
-chat_service = ChatService("손주톡톡")
-
-# 특정 모델로 초기화 (friendly, active, pleasant, reliable 중 선택)
+# 초기화
 chat_service = ChatService("손주톡톡", model_type="friendly")
 
+# 단순 채팅
 response = chat_service.chat("user123", "안녕하세요!")
 print(response["response"])
+
+# 대화 기록 포함 (백엔드에서 전달)
+history = [
+    {"role": "user", "content": "안녕하세요"},
+    {"role": "assistant", "content": "반갑습니다"}
+]
+response = chat_service.chat("user123", "오늘 날씨 좋네요", history=history)
+
+# TTS 음성 파일 생성
+response = chat_service.chat("user123", "안녕하세요", enable_tts=True)
+print(response["tts_path"])  # outputs/tts/friendly_user123_20251107.mp3
 ```
 
 ### 할일 추출
@@ -143,11 +146,25 @@ async def get_available_models():
         ]
     }
 
-# 채팅 API
+# 채팅 API (MySQL 연동 버전)
 @app.post("/ai/chat")
 async def chat(request: ChatRequest):
-    response = chat_service.chat(request.user_id, request.message)
-    return {"ai_response": response["response"]}
+    # 1. DB에서 최근 대화 조회
+    history = get_recent_chat_history(request.user_id, limit=10)
+    
+    # 2. AI 호출
+    response = chat_service.chat(
+        request.user_id, 
+        request.message,
+        history=history,
+        enable_tts=True
+    )
+    
+    # 3. DB에 저장
+    save_chat_log(request.user_id, 'user', request.message)
+    save_chat_log(request.user_id, 'ai', response['response'], response.get('tts_path'))
+    
+    return response
 
 # 할일 추출 API
 @app.post("/ai/todos/extract")
