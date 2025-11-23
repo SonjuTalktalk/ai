@@ -3,6 +3,7 @@
 
 # Python 기본
 __pycache__/
+*/__pycache__/
 *.py[cod]
 *$py.class
 .Python
@@ -23,7 +24,13 @@ env/
 *.err
 
 # 실행 중 생성된 파일 (예: 음성 출력 등)
-outputs/
+ai/outputs/
+
+# OCR 테스트 이미지
+ai/samples/
+
+# OCR 테스트 스크립트
+ai/test_prescription_ocr.py
 
 # 테스트 / 커버리지
 .pytest_cache/

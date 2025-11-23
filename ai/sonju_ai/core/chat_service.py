@@ -1,6 +1,6 @@
 """
 손주톡톡 채팅 서비스
-메인 채팅 기능과 대화 관리 (4개 모델 지원)
+메인 채팅 기능과 대화 관리 (4개 모델 지원 + 대화형 할일 추출 + TTS)
 """
 
 import logging
@@ -9,22 +9,12 @@ from datetime import datetime
 
 from sonju_ai.utils.openai_client import OpenAIClient
 from sonju_ai.config.prompts import get_prompt, validate_model_type
+from sonju_ai.core.todo_processor import TodoProcessor
 
 logger = logging.getLogger(__name__)
-# 개발 단계: logging.INFO (기본값)
-# 서비스 운영 시: logger.setLevel(logging.WARNING) 권장
-
-
-# 성격 모델별 TTS 음성 매핑
-VOICE_MAP = {
-    "friendly": "alloy",    # 다정한 - 부드럽고 따뜻한
-    "active": "echo",       # 활발한 - 명랑하고 에너지 있는
-    "pleasant": "fable",    # 유쾌한 - 밝고 유머러스한
-    "reliable": "onyx"      # 듬직한 - 침착하고 안정감 있는
-}
 
 class ChatService:
-    """손주톡톡 메인 채팅 서비스 (4개 AI 모델 지원)"""
+    """손주톡톡 메인 채팅 서비스 (4개 AI 모델 + 대화형 할일 추출 + TTS)"""
     
     def __init__(
         self, 
@@ -46,6 +36,7 @@ class ChatService:
         self.model_type = validate_model_type(model_type)
         
         self.openai_client = OpenAIClient()
+        self.todo_processor = TodoProcessor()  # 대화형 할일 추출 프로세서
         
         logger.info(
             f"채팅 서비스 초기화 완료 (AI 이름: {ai_name}, 모델: {self.model_type})"
@@ -75,19 +66,18 @@ class ChatService:
         self, 
         user_id: str, 
         message: str, 
-        history: Optional[List[Dict[str, str]]] = None,
-        enable_tts: bool = False,
-        tts_output_dir: str = "outputs/tts"
-    ) -> Dict[str, str]:
+        history: Optional[List[Dict]] = None,
+        enable_tts: bool = False
+    ) -> Dict:
         """
-        사용자와 채팅 (DB 기록은 백엔드가 담당)
+        사용자와 채팅 (대화형 할일 추출 + TTS 지원)
         
         Args:
             user_id: 사용자 ID
             message: 사용자 메시지
-            history: 최근 대화 내역 [{"role": "user"/"assistant", "content": "..."}]
-            enable_tts: TTS 음성 파일 생성 여부
-            tts_output_dir: TTS 파일 저장 디렉토리
+            history: 백엔드에서 전달받은 대화 기록 (선택)
+                     [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+            enable_tts: TTS 활성화 여부 (기본: False)
             
         Returns:
             dict: {
@@ -95,75 +85,81 @@ class ChatService:
                 "timestamp": "시간",
                 "ai_name": "AI이름",
                 "model_type": "모델타입",
-                "tts_path": "음성파일경로" (enable_tts=True일 때만)
+                "has_todo": True/False,
+                "task": "병원 가기" (has_todo=True일 때만),
+                "date": "내일" (has_todo=True일 때만),
+                "time": "오전 10시" (has_todo=True일 때만),
+                "tts_path": "audio.mp3" (enable_tts=True일 때만)
             }
         """
         try:
-            # 시스템 프롬프트 설정 (모델 타입에 따라)
-            system_prompt = get_prompt(
-                "chat",
-                model_type=self.model_type,
-                ai_name=self.ai_name
-            )
+            # 1. 할일 추출 먼저 확인 (대화형)
+            todo_result = self.todo_processor.process_message(message, user_id)
             
-            # 메시지 구성
-            messages = [{"role": "system", "content": system_prompt}]
+            # 2-1. 할일 관련 대화 (확인/날짜 물어보기 또는 저장 완료)
+            if todo_result["response"] is not None:
+                ai_response = todo_result["response"]
+                
+                # TTS 생성 (옵션)
+                tts_path = None
+                if enable_tts:
+                    tts_path = self.openai_client.text_to_speech(ai_response)
+                
+                return {
+                    "response": ai_response,
+                    "timestamp": datetime.now().isoformat(),
+                    "ai_name": self.ai_name,
+                    "model_type": self.model_type,
+                    "has_todo": todo_result["has_todo"],
+                    "task": todo_result.get("task"),
+                    "date": todo_result.get("date"),
+                    "time": todo_result.get("time"),
+                    "tts_path": tts_path
+                }
             
-            # 과거 대화 기록 추가 (백엔드에서 전달받음)
-            if history:
-                messages.extend(history)
-            
-            # 현재 사용자 메시지 추가
-            messages.append({"role": "user", "content": message})
-            
-            # OpenAI API 호출
-            ai_response = self.openai_client.chat_completion(messages)
-            
-            logger.info(
-                f"채팅 완료 - 사용자: {user_id}, "
-                f"모델: {self.model_type}, 메시지 길이: {len(message)}"
-            )
-            
-            # 응답 딕셔너리 기본 구성
-            response_dict = {
-                "response": ai_response,
-                "timestamp": datetime.now().isoformat(),
-                "ai_name": self.ai_name,
-                "model_type": self.model_type,
-                "tts_path": None
-            }
-            
-            # TTS 생성 (옵션)
-            if enable_tts:
-                try:
-                    import os
-                    # 출력 디렉토리 생성
-                    os.makedirs(tts_output_dir, exist_ok=True)
-                    
-                    # 파일 경로 생성
-                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"{self.model_type}_{user_id}_{timestamp_str}.mp3"
-                    output_path = os.path.join(tts_output_dir, filename)
-                    
-                    # TTS 변환
-                    voice = VOICE_MAP.get(self.model_type, "alloy")
-                    tts_path = self.openai_client.text_to_speech(
-                        text=ai_response,
-                        voice=voice,
-                        output_path=output_path
-                    )
-                    
-                    if tts_path:
-                        response_dict["tts_path"] = tts_path
-                        logger.info(f"TTS 파일 생성 완료: {tts_path}")
-                    else:
-                        logger.warning("TTS 파일 생성 실패")
-                        
-                except Exception as e:
-                    logger.error(f"TTS 생성 중 오류: {e}")
-                    # TTS 실패해도 채팅 응답은 반환
-            
-            return response_dict
+            # 2-2. 일반 채팅
+            else:
+                # 시스템 프롬프트 설정 (모델 타입에 따라)
+                system_prompt = get_prompt(
+                    "chat",
+                    model_type=self.model_type,
+                    ai_name=self.ai_name
+                )
+                
+                # 메시지 구성
+                messages = [{"role": "system", "content": system_prompt}]
+                
+                # 백엔드에서 전달받은 대화 기록 추가 (있을 경우)
+                if history:
+                    messages.extend(history)
+                
+                # 현재 사용자 메시지 추가
+                messages.append({"role": "user", "content": message})
+                
+                # OpenAI API 호출
+                ai_response = self.openai_client.chat_completion(messages)
+                
+                # TTS 생성 (옵션)
+                tts_path = None
+                if enable_tts:
+                    tts_path = self.openai_client.text_to_speech(ai_response)
+                
+                logger.info(
+                    f"채팅 완료 - 사용자: {user_id}, "
+                    f"모델: {self.model_type}, 메시지 길이: {len(message)}"
+                )
+                
+                return {
+                    "response": ai_response,
+                    "timestamp": datetime.now().isoformat(),
+                    "ai_name": self.ai_name,
+                    "model_type": self.model_type,
+                    "has_todo": False,
+                    "task": None,
+                    "date": None,
+                    "time": None,
+                    "tts_path": tts_path
+                }
             
         except Exception as e:
             logger.error(f"채팅 처리 중 오류 발생 - 사용자: {user_id}, 오류: {e}")
@@ -174,6 +170,10 @@ class ChatService:
                 "timestamp": datetime.now().isoformat(),
                 "ai_name": self.ai_name,
                 "model_type": self.model_type,
+                "has_todo": False,
+                "task": None,
+                "date": None,
+                "time": None,
                 "tts_path": None
             }
     
@@ -252,50 +252,63 @@ class ChatService:
 
 # 간단한 테스트 실행
 if __name__ == "__main__":
-    # 4개 모델 테스트
     try:
         print("="*50)
-        print("손주톡톡 AI 모듈 테스트 (백엔드 연동 버전)")
+        print("손주톡톡 채팅 + 할일 추출 대화형 테스트")
         print("="*50)
         
-        # 1. 다정한(friendly) 모델
-        print("\n[1] 다정한(friendly) 모델 - 단일 대화")
-        chat_friendly = ChatService("손주", "friendly")
-        response1 = chat_friendly.chat("test_user", "문자 보내는 법 알려주세요")
-        print(f"응답: {response1['response']}\n")
+        chat_service = ChatService("손주", "friendly")
         
-        # 2. 대화 기록 포함 테스트
-        print("[2] 대화 기록 포함 테스트")
-        history = [
-            {"role": "user", "content": "안녕하세요"},
-            {"role": "assistant", "content": "안녕하세요! 오늘 기분은 어떠세요?"}
-        ]
-        response2 = chat_friendly.chat(
-            "test_user", 
-            "어제 병원 다녀왔어요",
-            history=history
-        )
-        print(f"응답: {response2['response']}\n")
+        # ===== 테스트 1: 일반 채팅 =====
+        print("\n[테스트 1] 일반 채팅")
+        response1 = chat_service.chat("user1", "안녕하세요!", enable_tts=False)
+        print(f"💬 AI: {response1['response']}")
+        print(f"   할일: {response1['has_todo']}\n")
         
-        # 3. TTS 포함 테스트
-        print("[3] TTS 포함 테스트")
-        response3 = chat_friendly.chat(
-            "test_user",
-            "오늘 날씨가 좋네요",
-            enable_tts=True
-        )
-        print(f"응답: {response3['response']}")
-        print(f"TTS 파일: {response3.get('tts_path', '생성 안됨')}\n")
+        # ===== 테스트 2: 할일 추출 (날짜 있음) =====
+        print("[테스트 2] 할일 추출 - 날짜 있음")
+        response2 = chat_service.chat("user2", "내일 오전 10시에 병원 가야 해요", enable_tts=False)
+        print(f"💬 AI: {response2['response']}")
         
-        # 4. 모델 변경 테스트
-        print("[4] 활발한(active) 모델")
-        chat_active = ChatService("손주", "active")
-        response4 = chat_active.chat("test_user", "오늘 기분이 좋아요!")
-        print(f"응답: {response4['response']}\n")
+        response3 = chat_service.chat("user2", "응", enable_tts=False)
+        print(f"💬 AI: {response3['response']}")
+        if response3['has_todo']:
+            print(f"✅ 저장: {response3['task']} | {response3['date']} {response3['time']}\n")
+        
+        # ===== 테스트 3: 할일 추출 (날짜 없음) =====
+        print("[테스트 3] 할일 추출 - 날짜 없음")
+        response4 = chat_service.chat("user3", "손주한테 전화해야 하는데", enable_tts=False)
+        print(f"💬 AI: {response4['response']}")
+        
+        response5 = chat_service.chat("user3", "응", enable_tts=False)
+        print(f"💬 AI: {response5['response']}")
+        
+        response6 = chat_service.chat("user3", "내일 오후 2시", enable_tts=False)
+        print(f"💬 AI: {response6['response']}")
+        if response6['has_todo']:
+            print(f"✅ 저장: {response6['task']} | {response6['date']} {response6['time']}\n")
+        
+        # ===== 테스트 4: 할일 아님 (학습 요청) =====
+        print("[테스트 4] 할일 아님 - 학습 요청")
+        response7 = chat_service.chat("user4", "문자 보내는 법 알려주세요", enable_tts=False)
+        print(f"💬 AI: {response7['response']}")
+        print(f"   할일: {response7['has_todo']}\n")
+        
+        # ===== 테스트 5: 모델 변경 =====
+        print("[테스트 5] 모델 변경 (friendly → active)")
+        chat_service.update_model_type("active")
+        response8 = chat_service.chat("user5", "오늘 기분이 좋아요!", enable_tts=False)
+        print(f"💬 AI ({response8['model_type']}): {response8['response']}\n")
+        
+        # ===== 테스트 6: TTS (선택) =====
+        print("[테스트 6] TTS 활성화")
+        response9 = chat_service.chat("user6", "안녕하세요!", enable_tts=True)
+        print(f"💬 AI: {response9['response']}")
+        print(f"🔊 TTS: {response9.get('tts_path', 'None')}\n")
         
         print("="*50)
         print("테스트 완료!")
         print("="*50)
         
     except Exception as e:
-        print(f"테스트 중 오류: {e}")
+        print(f"❌ 테스트 중 오류: {e}")
