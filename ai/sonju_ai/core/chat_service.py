@@ -36,29 +36,19 @@ class ChatService:
         self.model_type = validate_model_type(model_type)
         
         self.openai_client = OpenAIClient()
-        self.todo_processor = TodoProcessor()  # 대화형 할일 추출 프로세서
+        self.todo_processor = TodoProcessor()
         
         logger.info(
             f"채팅 서비스 초기화 완료 (AI 이름: {ai_name}, 모델: {self.model_type})"
         )
     
     def update_model_type(self, model_type: str):
-        """
-        AI 모델 타입 업데이트
-        
-        Args:
-            model_type: 새로운 모델 타입 ("friendly", "active", "pleasant", "reliable")
-        """
+        """AI 모델 타입 업데이트"""
         self.model_type = validate_model_type(model_type)
         logger.info(f"AI 모델 업데이트 완료: {self.model_type}")
     
     def update_ai_name(self, ai_name: str):
-        """
-        AI 이름 업데이트
-        
-        Args:
-            ai_name: 새로운 AI 이름
-        """
+        """AI 이름 업데이트"""
         self.ai_name = ai_name
         logger.info(f"AI 이름 업데이트 완료: {self.ai_name}")
     
@@ -76,8 +66,7 @@ class ChatService:
             user_id: 사용자 ID
             message: 사용자 메시지
             history: 백엔드에서 전달받은 대화 기록 (선택)
-                     [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-            enable_tts: TTS 활성화 여부 (기본: False)
+            enable_tts: TTS 활성화 여부
             
         Returns:
             dict: {
@@ -86,6 +75,7 @@ class ChatService:
                 "ai_name": "AI이름",
                 "model_type": "모델타입",
                 "has_todo": True/False,
+                "step": "none" | "suggest" | "ask_date" | "saved" | "cancelled",
                 "task": "병원 가기" (has_todo=True일 때만),
                 "date": "내일" (has_todo=True일 때만),
                 "time": "오전 10시" (has_todo=True일 때만),
@@ -111,6 +101,7 @@ class ChatService:
                     "ai_name": self.ai_name,
                     "model_type": self.model_type,
                     "has_todo": todo_result["has_todo"],
+                    "step": todo_result["step"],  # ✅ step 필드 추가!
                     "task": todo_result.get("task"),
                     "date": todo_result.get("date"),
                     "time": todo_result.get("time"),
@@ -119,7 +110,7 @@ class ChatService:
             
             # 2-2. 일반 채팅
             else:
-                # 시스템 프롬프트 설정 (모델 타입에 따라)
+                # 시스템 프롬프트 설정
                 system_prompt = get_prompt(
                     "chat",
                     model_type=self.model_type,
@@ -129,7 +120,7 @@ class ChatService:
                 # 메시지 구성
                 messages = [{"role": "system", "content": system_prompt}]
                 
-                # 백엔드에서 전달받은 대화 기록 추가 (있을 경우)
+                # 대화 기록 추가
                 if history:
                     messages.extend(history)
                 
@@ -155,6 +146,7 @@ class ChatService:
                     "ai_name": self.ai_name,
                     "model_type": self.model_type,
                     "has_todo": False,
+                    "step": "none",  # ✅ 일반 채팅은 step=none
                     "task": None,
                     "date": None,
                     "time": None,
@@ -171,6 +163,7 @@ class ChatService:
                 "ai_name": self.ai_name,
                 "model_type": self.model_type,
                 "has_todo": False,
+                "step": "none",
                 "task": None,
                 "date": None,
                 "time": None,
@@ -178,16 +171,7 @@ class ChatService:
             }
     
     def generate_encouragement(self, user_id: str, context: str = "") -> str:
-        """
-        격려 메시지 생성
-        
-        Args:
-            user_id: 사용자 ID
-            context: 격려 상황 설명
-            
-        Returns:
-            str: 격려 메시지
-        """
+        """격려 메시지 생성"""
         try:
             encouragement_prompt = get_prompt("encouragement")
             
@@ -206,16 +190,7 @@ class ChatService:
             return "오늘도 수고 많으셨어요! 천천히 하시면 돼요."
     
     def analyze_user_pattern(self, user_id: str, activity_data: Dict) -> str:
-        """
-        사용자 패턴 분석 및 피드백 생성
-        
-        Args:
-            user_id: 사용자 ID
-            activity_data: 활동 데이터 {"study_time": 120, "completed_tasks": 5, ...}
-            
-        Returns:
-            str: 분석 결과 메시지
-        """
+        """사용자 패턴 분석 및 피드백 생성"""
         try:
             analysis_prompt = get_prompt("analysis")
             
@@ -254,57 +229,44 @@ class ChatService:
 if __name__ == "__main__":
     try:
         print("="*50)
-        print("손주톡톡 채팅 + 할일 추출 대화형 테스트")
+        print("손주톡톡 채팅 + 할일 추출 (step 포함) 테스트")
         print("="*50)
         
         chat_service = ChatService("손주", "friendly")
         
-        # ===== 테스트 1: 일반 채팅 =====
+        # 테스트 1: 일반 채팅
         print("\n[테스트 1] 일반 채팅")
-        response1 = chat_service.chat("user1", "안녕하세요!", enable_tts=False)
-        print(f"💬 AI: {response1['response']}")
-        print(f"   할일: {response1['has_todo']}\n")
+        r1 = chat_service.chat("user1", "안녕하세요!", enable_tts=False)
+        print(f"step={r1['step']}, has_todo={r1['has_todo']}")
+        print(f"💬 AI: {r1['response']}\n")
         
-        # ===== 테스트 2: 할일 추출 (날짜 있음) =====
+        # 테스트 2: 할일 추출 (날짜 있음)
         print("[테스트 2] 할일 추출 - 날짜 있음")
-        response2 = chat_service.chat("user2", "내일 오전 10시에 병원 가야 해요", enable_tts=False)
-        print(f"💬 AI: {response2['response']}")
+        r2 = chat_service.chat("user2", "내일 오전 10시에 병원 가야 해요", enable_tts=False)
+        print(f"step={r2['step']}, has_todo={r2['has_todo']}")
+        print(f"💬 AI: {r2['response']}")
         
-        response3 = chat_service.chat("user2", "응", enable_tts=False)
-        print(f"💬 AI: {response3['response']}")
-        if response3['has_todo']:
-            print(f"✅ 저장: {response3['task']} | {response3['date']} {response3['time']}\n")
+        r3 = chat_service.chat("user2", "응", enable_tts=False)
+        print(f"step={r3['step']}, has_todo={r3['has_todo']}")
+        print(f"💬 AI: {r3['response']}")
+        if r3['has_todo']:
+            print(f"✅ 저장: {r3['task']} | {r3['date']} {r3['time']}\n")
         
-        # ===== 테스트 3: 할일 추출 (날짜 없음) =====
+        # 테스트 3: 할일 추출 (날짜 없음)
         print("[테스트 3] 할일 추출 - 날짜 없음")
-        response4 = chat_service.chat("user3", "손주한테 전화해야 하는데", enable_tts=False)
-        print(f"💬 AI: {response4['response']}")
+        r4 = chat_service.chat("user3", "손주한테 전화해야 하는데", enable_tts=False)
+        print(f"step={r4['step']}, has_todo={r4['has_todo']}")
+        print(f"💬 AI: {r4['response']}")
         
-        response5 = chat_service.chat("user3", "응", enable_tts=False)
-        print(f"💬 AI: {response5['response']}")
+        r5 = chat_service.chat("user3", "응", enable_tts=False)
+        print(f"step={r5['step']}, has_todo={r5['has_todo']}")
+        print(f"💬 AI: {r5['response']}")
         
-        response6 = chat_service.chat("user3", "내일 오후 2시", enable_tts=False)
-        print(f"💬 AI: {response6['response']}")
-        if response6['has_todo']:
-            print(f"✅ 저장: {response6['task']} | {response6['date']} {response6['time']}\n")
-        
-        # ===== 테스트 4: 할일 아님 (학습 요청) =====
-        print("[테스트 4] 할일 아님 - 학습 요청")
-        response7 = chat_service.chat("user4", "문자 보내는 법 알려주세요", enable_tts=False)
-        print(f"💬 AI: {response7['response']}")
-        print(f"   할일: {response7['has_todo']}\n")
-        
-        # ===== 테스트 5: 모델 변경 =====
-        print("[테스트 5] 모델 변경 (friendly → active)")
-        chat_service.update_model_type("active")
-        response8 = chat_service.chat("user5", "오늘 기분이 좋아요!", enable_tts=False)
-        print(f"💬 AI ({response8['model_type']}): {response8['response']}\n")
-        
-        # ===== 테스트 6: TTS (선택) =====
-        print("[테스트 6] TTS 활성화")
-        response9 = chat_service.chat("user6", "안녕하세요!", enable_tts=True)
-        print(f"💬 AI: {response9['response']}")
-        print(f"🔊 TTS: {response9.get('tts_path', 'None')}\n")
+        r6 = chat_service.chat("user3", "내일 오후 2시", enable_tts=False)
+        print(f"step={r6['step']}, has_todo={r6['has_todo']}")
+        print(f"💬 AI: {r6['response']}")
+        if r6['has_todo']:
+            print(f"✅ 저장: {r6['task']} | {r6['date']} {r6['time']}\n")
         
         print("="*50)
         print("테스트 완료!")
